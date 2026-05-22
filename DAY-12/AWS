@@ -1,0 +1,103 @@
+Network components:
+VPC  - Virtual Private Cloud  - Largest Network
+Subnets - smaller network groups in VPC.
+Route tables
+Internet gateway - is attached to VPC. It can provide network whole VPC.
+NAT gateway
+
+
+
+Classes - A, B, C, D, E - 1 to 255
+
+Class A - very larger networks. - 1.0.0.0 to 127.255.255.255 
+Class B - Medium networks - 128.0.0.0 to 191.255.255.255
+Class C -  Small network - 192.0.0.0 to 223.255.255.255
+Class D - multi casting purpose.
+Class E - special cases. 
+
+
+CIDR - Classless - inter Domain Routing.
+
+
+Vpc should have less mask number than subnet.
+
+
+VPC - 16
+Subnet -24
+
+
+Route table -
+Public RT- IGW , Public Subnet 
+
+
+NAT --> PUBLIC SUBNET
+
+
+Pvt RT- NAT, Pvt subnet 
+
+
+IGW --> 	Public subnet --> NAT --> pvt subnet
+
+
+Public EC2 -->.ppk keypair
+Pvt EC2 --> .pem keypair
+
+
+Ubuntu OS - apt-get
+Amazon Linux - yum(yellowdog updated, modified)
+
+Webserver - having application.
+Ubuntu - Apache2 --> port number is 80
+Amazon linux - httpd, nginx --> port number is 80.
+
+
+
+Connecting to putty:
+
+Become as root user.
+Updated my instance(server).
+Install the web server based on the OS selected.
+Check git is installed or not. If not, install git --> apt-get install git -y.
+Clone your application.
+Go inside that folder.
+Copy frontend files to destination path(/var/www/html). 
+Check the status of webserver. If not in active state, start, enable webserver.
+
+
+
+ls --> show all the files, folders in that server.
+cd --> change directory --> you will go inside that particular folder(directory).
+cp -->change path --> changing the path of particular files.
+
+
+
+<public IP>:80
+
+
+
+Chmod  -->  changing modules(owners)
+400 --> users (4), groups(0), others(0)
+
+Read -4, write -2, execute -1
+
+Sudo su --> Switch User DO Super User
+
+Connecting public, private instances:
+	1. Connect public instance to putty.
+	2. Become as root user.
+	3. Create the .pem file & give the content inside the .pem file.
+	4. Give permissions to .pem file.
+	5. Give ssh command of private instance.
+
+
+vi --> create empty file, open edit window.
+nano --> create empty file, edit window.
+Press ctrl+x, y, filename, press enter. 
+
+
+
+RDS --> username, password.
+
+Public, pvt instance --> frontend(html, css, js)  --> web tier
+Public, pvt instance --> backend(RDS username, password)  --> App tier
+Private subnet --> RDS --> Database tier

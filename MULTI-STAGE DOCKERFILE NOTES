@@ -1,0 +1,14 @@
+MULTI-STAGE DOCKERFILE:
+A Multi-Stage Dockerfile is a Dockerfile that uses multiple FROM statements to separate the build environment from the runtime environment.
+
+The main purpose is to reduce the final image size by keeping only the files needed to run the application and excluding build tools, 
+source code, and dependencies used during compilation.
+
+why multi-stage dockerfile:
+1. Seperates run-time, build time env.
+2. Faster deployment
+3. Cleaner production 
+4. Smaller image size
+
+
+refer : maven-web-application repo.

@@ -1,0 +1,29 @@
+Docker volumes:
+	1. To persiste the data.
+	2. To backup the data.
+
+Container --> volume
+
+Volumes:
+	1. Directory.
+	2. Attached to n no. of containers.
+	3. Can't create volume after creation of container.
+	4. Conatiner is deleted, volume is present.
+
+Types of volumes:
+	1. Ananymous volumes: without name.
+	10 c--> 10 v --> see 10 volume ID's.
+	2. Named volumes: give a name to volume.
+Disadvantages of ananymous & named volumes :
+	 Default path docker.
+	3. Bind volumes: 
+Select custom path. 
+
+
+ docker run -it --name d-2 --privileged --volumes-from d-1 ubuntu /bin/bash
+--privileged-volumes-from d-1 --> asking permission of d-1 container.
+
+
+
+d-1  --> store folder --> 2 files, 1 folder --> calm(volume)
+d-3 --> attached volume(calm).

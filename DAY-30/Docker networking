@@ -1,0 +1,31 @@
+Docker Networking:
+	1. Container to container communication.
+	2. Microservices architecture.
+	3. Port exposure to host.
+	h.p -->8080,  c.p --> 5000 
+	<public IP>:8080
+	Localhost:8080
+	4. Security. --> 
+	5. Isolation --> control which container has to talk with which container.
+c-1 --> c-5
+
+
+What is Docker Networking:
+ system allows docker to communicate with
+	1. Container- container
+	2. Container - host
+	3. Container - internet 
+
+
+	1. Bridge network: custom networks are possible.
+Devops(bridge) -->app2, app3(containers)
+Inside app2 --> called app3(ping)
+Inside app3 --> called app2
+
+	2. Host network:
+Container shares host network(laptop os network). 
+Can't create custom networks.
+
+host
+B1(nginx)
+B2(ubuntu)

@@ -1,0 +1,17 @@
+Adhoc commands:
+Single line commands.
+Perform quick tasks without creating playbooks.
+
+Why?
+	1. Test connectivity of ansible server/ check communication 
+Between ansible & host servers.
+	2. Check free/ disk space.
+	3. Restart services.
+	4. Check uptime.
+	5. Install packages.
+
+
+Adhoc:
+Only for single task.
+Complex deployments or configurations don't use adhoc commands.
+

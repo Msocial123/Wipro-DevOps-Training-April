@@ -1,0 +1,43 @@
+MODULES:
+Collection of terraform files.
+Every resource is a module.
+Root module
+Child module --> VPC, subnet, igw, nat
+
+Child modules are called in the root modules.
+
+Root module(main.tf, output.tf, variables.tf, provider.tf, terraform.tfvars)
+
+Child module
+VPC --> main.tf, output.tf, variable.tf
+Subnet --> main.tf, output.tf, variable.tf
+
+Why?
+	1. Reusability --> different env, different projects.
+	2. Reduce repeated code --> calling child modules.
+	3. Better organisation -->breaking infra from large to small.
+	4. Team collaboraton: different teams manage different modules.
+	Vpc module --> networking team
+	Ec2 + autoscaling grp --> devops team
+	RDS module --> database team
+	
+	
+	
+	
+	
+Root module
+Main.tf
+Variable.tf
+Output.tf
+Terraform.tfvars
+Provider.tf
+
+Modules(folder)
+VPC(folder)
+     main.tf
+     variable.tf
+     output.tf
+Subnets(folder)
+     main.tf
+     variable.tf
+     output.tf

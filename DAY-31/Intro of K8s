@@ -1,0 +1,56 @@
+Kubernetes:
+Problems of containers:
+	1. Self-healing.
+	2. Autoscaling.
+	3. Load balancing.
+	4. Communication:
+	5. Orchestration
+	6. Resource management.
+	c-1 --> 2CPU, 4GB, 100 TB 
+	             1CPU, 2GB, 50 TB
+	
+K8s --> containerization management tool or orchestration tool.
+
+History of k8s: created by google in 2013 in go lng.
+Free-open source platform.
+In 2014, google donated to CNCF(Cloud Native Computing Foundation).
+K8s --> cluster.
+Cluster --> group of servers or group of nodes.
+Node --> it's a vm.
+Pod --> small deployable unit  -->  will manages the containers.
+
+
+
+
+Kubernetes Architecture:
+
+Cluster --> 1 master node, "n" worker nodes.
+
+Master node --> control plane, brain of cluster--> controlls entire cluster.
+	1. API server --> responsible for managing incoming traffic towards application/cluster.
+	Customer request --> API server.
+	Handles api calls, entire process.
+	Create pods, perform autoscaling -->api server.
+	Stores info in ETCD.
+	
+	2. ETCD: stores the info of the deployment in cluster --> pod, services, deployments.
+	Directory inside linux terminal. 
+	/ -->root dir . /etc --> we are storing info related deployment 
+/ --> ls,  etc
+
+
+	3. Scheduler: kube scheduler or default scheduler.
+	Customer request ---> API server --> Scheduler.
+	Pod --> API server --> scheduler.
+	Decides where pod has to be created.
+	
+	
+Worker Node:
+	1. Kubelet: responsible for communication to master node. 
+         Acts like agent, tell all the info in worker to master node.
+	1. Kubeproxy --> most important component in the cluster.
+	Container communication . Like a networking component.
+	IP Address, exposing app to internet.
+	2. Container run-time: responsible for pulling image from ECR or docker hub.
+	Manage the container life cycle.
+	3. Pod -->  where deployment is done. Automatically create required things.

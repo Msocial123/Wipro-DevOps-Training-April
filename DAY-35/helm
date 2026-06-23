@@ -1,0 +1,56 @@
+Configmaps:
+Store configuration data for an app
+Hard-coding values(URL's, env, ports)
+
+Stores:
+Env variables
+Configuration files
+Key-value pairs
+Will not store passwords, tokens.
+
+Pods use configmaps:
+	1. As env variables.
+	2. Command line arguments.
+
+Why?
+	1. Keep configuration seperatly to code.
+	2. Change configuration without rebuilding image.
+
+
+
+Secrets:
+Store password, token, key.
+
+Uses:
+	1. Security - avoid giving credentials inside deployment file, stored in encoded form.
+Password : Clahan --> YWHT12RJ56.
+	2. Seperation for env
+	3. Controlled access --> 
+	4. Easy updates --> change password --> update secret --> restart pod.
+Password: swarupa --> UYRJ469BD
+
+In powershell, echo -n "Clahan" | base64
+
+
+
+
+HELM: package manage for kubernetes.
+To deploy multiple YAML files with one command.
+
+Helm charts: chart --> application manager.
+Package format used to define, install, manage applications in kubernetes.
+We can deploy applications using multiple YAML files.
+
+Types of  Helm  charts:
+	1. Application: deploy application, default helm chart.
+	2. Library: store, reuse the helm templates in multiple application charts.
+
+
+Chart.yaml
+values.yaml  --> DB_PASSWORD: YTHS23IR9
+Templates  --> deployment.yaml
+                    --> service.yaml
+                   --> config.yaml
+                   --> secrets.yaml  --> values.DB_PASSWORD
+                  --> ns.yaml
+

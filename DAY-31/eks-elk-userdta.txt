@@ -1,0 +1,648 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+# === Config (edit if needed) ===
+CLUSTER_NAME="demo-clahan-eks"
+REGION="ap-northeast-1"
+NODEGROUP_NAME="demo-clahan-nodegroup"
+NODE_TYPE="t3.large"
+NODES=2
+MIN_NODES=2
+MAX_NODES=4
+
+# IAM role base name for EBS CSI
+EBS_ROLE_BASE="AmazonEKS_EBS_CSI_DriverRole"
+
+# ELK Stack Configuration
+ELK_NAMESPACE="elk-stack"
+ELASTICSEARCH_STORAGE="20Gi"  # Increased for ELK
+ELASTICSEARCH_REPLICAS=1
+
+log() { echo -e "\n---- $1 ----"; }
+
+# Basic prereq check
+command -v eksctl >/dev/null 2>&1 || { echo "eksctl not found in PATH. Install eksctl and retry."; exit 1; }
+command -v aws >/dev/null 2>&1 || { echo "aws CLI not found in PATH. Install aws CLI and retry."; exit 1; }
+command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found in PATH. Install kubectl and retry."; exit 1; }
+command -v helm >/dev/null 2>&1 || { echo "helm not found in PATH. Install helm and retry."; exit 1; }
+
+# === Create EKS cluster (idempotent check) ===
+if aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${REGION}" >/dev/null 2>&1; then
+  log "Cluster ${CLUSTER_NAME} already exists in ${REGION} - skipping create"
+else
+  log "Creating EKS cluster: ${CLUSTER_NAME} in region ${REGION}"
+  eksctl create cluster \
+    --name "${CLUSTER_NAME}" \
+    --version 1.31 \
+    --region "${REGION}" \
+    --nodegroup-name "${NODEGROUP_NAME}" \
+    --node-type "${NODE_TYPE}" \
+    --nodes "${NODES}" \
+    --nodes-min "${MIN_NODES}" \
+    --nodes-max "${MAX_NODES}" \
+    --managed \
+    --asg-access \
+    --full-ecr-access \
+    --alb-ingress-access
+fi
+
+# === Configure kubeconfig ===
+log "Configuring kubeconfig for ${CLUSTER_NAME}"
+aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${REGION}"
+
+# === Associate IAM OIDC provider (idempotent) ===
+log "Associating IAM OIDC provider with cluster (idempotent)"
+eksctl utils associate-iam-oidc-provider \
+  --region "${REGION}" \
+  --cluster "${CLUSTER_NAME}" \
+  --approve || {
+    echo "Warning: association command returned non-zero. Check if provider already exists; continuing."
+  }
+
+# === Create IAM Role for EBS CSI Driver (avoid collisions) ===
+log "Preparing IAM role for EBS CSI Driver"
+
+# Decide role name: use base if not existing, otherwise create a unique name
+if aws iam get-role --role-name "${EBS_ROLE_BASE}" >/dev/null 2>&1; then
+  ROLE_NAME="${EBS_ROLE_BASE}-$(date +%s)"
+  log "Role name ${EBS_ROLE_BASE} already exists; will create role as ${ROLE_NAME}"
+else
+  ROLE_NAME="${EBS_ROLE_BASE}"
+  log "Using role name ${ROLE_NAME}"
+fi
+
+log "Creating IAM role for service account (role-only) with name: ${ROLE_NAME}"
+
+set +e
+eksctl create iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster "${CLUSTER_NAME}" \
+  --role-name "${ROLE_NAME}" \
+  --role-only \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --approve
+CREATE_STATUS=$?
+set -e
+
+if [[ $CREATE_STATUS -ne 0 ]]; then
+  echo "ERROR: eksctl failed to create IAM service account / role. Inspect CloudFormation stack and eksctl output."
+  echo "CloudFormation stacks (filter for eksctl-${CLUSTER_NAME}):"
+  aws cloudformation list-stacks --region "${REGION}" --stack-status-filter CREATE_FAILED ROLLBACK_COMPLETE ROLLBACK_FAILED UPDATE_ROLLBACK_FAILED --query "StackSummaries[?starts_with(StackName, \`eksctl-${CLUSTER_NAME}\`)].StackName" --output text || true
+  echo "You can check the failing stack in the CloudFormation console for details."
+  exit 1
+fi
+
+# === Retrieve Role ARN ===
+log "Fetching Role ARN for ${ROLE_NAME}"
+ARN=$(aws iam get-role --role-name "${ROLE_NAME}" --query 'Role.Arn' --output text)
+if [[ -z "$ARN" || "$ARN" == "None" ]]; then
+  echo "Failed to retrieve role ARN for ${ROLE_NAME}. Exiting."
+  exit 1
+fi
+log "Role ARN: ${ARN}"
+
+# === Install EBS CSI Driver Addon ===
+log "Installing AWS EBS CSI Driver Addon using role ARN"
+eksctl create addon \
+  --cluster "${CLUSTER_NAME}" \
+  --region "${REGION}" \
+  --name aws-ebs-csi-driver \
+  --version latest \
+  --service-account-role-arn "${ARN}" \
+  --force
+
+# Wait a bit and check controller deploy status
+log "Waiting for ebs-csi-controller deployment to become ready (timeout 3m)"
+set +e
+kubectl wait --for=condition=available deployment/ebs-csi-controller -n kube-system --timeout=180s
+WAIT_RC=$?
+set -e
+
+if [[ $WAIT_RC -ne 0 ]]; then
+  echo "ebs-csi-controller deployment not fully available after timeout. Inspect pods and logs:"
+  echo "  kubectl get pods -n kube-system | grep ebs"
+  echo "  kubectl describe pod -n kube-system <ebs-controller-pod-name>"
+  echo "  kubectl logs -n kube-system <ebs-controller-pod-name> -c ebs-plugin"
+else
+  log "ebs-csi-controller is available."
+fi
+
+# === ELK Stack Setup ===
+log "Starting ELK Stack deployment"
+
+# Create namespace
+kubectl create namespace "${ELK_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
+# Deploy ELK stack using the YAML files
+log "Deploying Elasticsearch"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: ${ELK_NAMESPACE}
+  name: elasticsearch-config
+data:
+  elasticsearch.yml: |
+    cluster.name: "eks-logging"
+    network.host: 0.0.0.0
+    discovery.type: single-node
+    xpack.security.enabled: false
+    path.data: /usr/share/elasticsearch/data
+    path.logs: /usr/share/elasticsearch/logs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: ${ELK_NAMESPACE}
+  name: elasticsearch-log-config
+data:
+  log4j2.properties: |
+    appender.rolling.type = RollingFile
+    appender.rolling.name = rolling
+    appender.rolling.fileName = \${sys:es.logs.base_path}\${sys:es.logs.cluster_name}.log
+    appender.rolling.layout.type = PatternLayout
+    appender.rolling.layout.pattern = [%d{ISO8601}][%-5p][%-25c] %m%n
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: ${ELK_NAMESPACE}
+spec:
+  serviceName: elasticsearch
+  replicas: ${ELASTICSEARCH_REPLICAS}
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+        ports:
+        - containerPort: 9200
+          name: http
+        - containerPort: 9300
+          name: transport
+        env:
+        - name: discovery.type
+          value: single-node
+        - name: ES_JAVA_OPTS
+          value: "-Xms1g -Xmx1g"
+        - name: xpack.security.enabled
+          value: "false"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: elasticsearch-data
+          mountPath: /usr/share/elasticsearch/data
+        - name: elasticsearch-config
+          mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+          subPath: elasticsearch.yml
+        - name: elasticsearch-log-config
+          mountPath: /usr/share/elasticsearch/config/log4j2.properties
+          subPath: log4j2.properties
+        livenessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 30
+          periodSeconds: 5
+      volumes:
+      - name: elasticsearch-config
+        configMap:
+          name: elasticsearch-config
+      - name: elasticsearch-log-config
+        configMap:
+          name: elasticsearch-log-config
+  volumeClaimTemplates:
+  - metadata:
+      name: elasticsearch-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "gp2"
+      resources:
+        requests:
+          storage: ${ELASTICSEARCH_STORAGE}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: ${ELK_NAMESPACE}
+  labels:
+    app: elasticsearch
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+  - port: 9200
+    name: http
+    targetPort: 9200
+  - port: 9300
+    name: transport
+    targetPort: 9300
+  type: ClusterIP
+EOF
+
+log "Deploying Logstash"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: ${ELK_NAMESPACE}
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+  logstash.conf: |
+    input {
+      beats {
+        port => 5044
+        host => "0.0.0.0"
+      }
+      tcp {
+        port => 5000
+        codec => json
+      }
+    }
+    
+    filter {
+      if [kubernetes] {
+        mutate {
+          add_field => {
+            "namespace" => "%{[kubernetes][namespace]}"
+            "pod_name" => "%{[kubernetes][pod][name]}"
+            "container_name" => "%{[kubernetes][container][name]}"
+          }
+        }
+      }
+      
+      if [message] =~ /^{.*}\$/ {
+        json {
+          source => "message"
+        }
+      }
+      
+      grok {
+        match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:loglevel} %{GREEDYDATA:message}" }
+        overwrite => [ "message" ]
+      }
+      
+      date {
+        match => [ "timestamp", "ISO8601" ]
+        target => "@timestamp"
+      }
+    }
+    
+    output {
+      elasticsearch {
+        hosts => ["http://elasticsearch:9200"]
+        index => "logs-%{+YYYY.MM.dd}"
+      }
+      stdout {
+        codec => rubydebug
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: ${ELK_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:8.11.0
+        ports:
+        - containerPort: 5044
+          name: beats
+        - containerPort: 5000
+          name: tcp
+        - containerPort: 9600
+          name: http
+        env:
+        - name: LS_JAVA_OPTS
+          value: "-Xmx1g -Xms512m"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: logstash-config
+          mountPath: /usr/share/logstash/config/logstash.yml
+          subPath: logstash.yml
+        - name: logstash-pipeline
+          mountPath: /usr/share/logstash/pipeline/logstash.conf
+          subPath: logstash.conf
+        livenessProbe:
+          httpGet:
+            path: /_node/stats
+            port: 9600
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: logstash-config
+        configMap:
+          name: logstash-config
+      - name: logstash-pipeline
+        configMap:
+          name: logstash-config
+          items:
+          - key: logstash.conf
+            path: logstash.conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: ${ELK_NAMESPACE}
+spec:
+  selector:
+    app: logstash
+  ports:
+  - port: 5044
+    name: beats
+    targetPort: 5044
+  - port: 5000
+    name: tcp
+    targetPort: 5000
+  type: ClusterIP
+EOF
+
+log "Deploying Kibana"
+kubectl apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: ${ELK_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      containers:
+      - name: kibana
+        image: docker.elastic.co/kibana/kibana:8.11.0
+        ports:
+        - containerPort: 5601
+          name: http
+        env:
+        - name: ELASTICSEARCH_HOSTS
+          value: "http://elasticsearch:9200"
+        - name: SERVER_NAME
+          value: "kibana.${ELK_NAMESPACE}"
+        - name: SERVER_HOST
+          value: "0.0.0.0"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: ${ELK_NAMESPACE}
+spec:
+  selector:
+    app: kibana
+  ports:
+  - port: 5601
+    targetPort: 5601
+  type: LoadBalancer
+EOF
+
+# === Deploy Filebeat DaemonSet ===
+log "Deploying Filebeat for log collection"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: ${ELK_NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+  labels:
+    app: filebeat
+rules:
+- apiGroups: [""]
+  resources:
+  - namespaces
+  - pods
+  - nodes
+  verbs:
+  - get
+  - watch
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+subjects:
+- kind: ServiceAccount
+  name: filebeat
+  namespace: ${ELK_NAMESPACE}
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: ${ELK_NAMESPACE}
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+    - type: container
+      paths:
+        - /var/log/containers/*.log
+      processors:
+        - add_kubernetes_metadata:
+            host: \${NODE_NAME}
+            matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+
+    output.logstash:
+      hosts: ["logstash:5044"]
+
+    setup.template.settings:
+      index.number_of_shards: 1
+
+    setup.kibana:
+      host: "kibana:5601"
+
+    logging.level: info
+    logging.to_files: true
+    logging.files:
+      path: /var/log/filebeat
+      name: filebeat
+      keepfiles: 7
+      permissions: 0644
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: ${ELK_NAMESPACE}
+  labels:
+    app: filebeat
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+    spec:
+      serviceAccountName: filebeat
+      containers:
+      - name: filebeat
+        image: docker.elastic.co/beats/filebeat:8.11.0
+        args: [
+          "-c", "/etc/filebeat.yml",
+          "-e",
+        ]
+        env:
+        - name: ELASTICSEARCH_HOST
+          value: elasticsearch
+        - name: ELASTICSEARCH_PORT
+          value: "9200"
+        - name: LOGSTASH_HOST
+          value: logstash
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        resources:
+          requests:
+            memory: "100Mi"
+            cpu: "100m"
+          limits:
+            memory: "200Mi"
+            cpu: "200m"
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: filebeat-config
+          mountPath: /etc/filebeat.yml
+          readOnly: true
+          subPath: filebeat.yml
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: proc
+          mountPath: /hostfs/proc
+          readOnly: true
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: filebeat-config
+        configMap:
+          name: filebeat-config
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: proc
+        hostPath:
+          path: /proc
+EOF
+
+# === Wait for ELK components to be ready ===
+log "Waiting for ELK stack components to be ready"
+
+log "Waiting for Elasticsearch..."
+kubectl wait --for=condition=ready pod -l app=elasticsearch -n "${ELK_NAMESPACE}" --timeout=300s
+
+log "Waiting for Logstash..."
+kubectl wait --for=condition=ready pod -l app=logstash -n "${ELK_NAMESPACE}" --timeout=300s
+
+log "Waiting for Kibana..."
+kubectl wait --for=condition=ready pod -l app=kibana -n "${ELK_NAMESPACE}" --timeout=300s
+
+# === Get Kibana URL ===
+log "Getting Kibana LoadBalancer URL"
+until KIBANA_URL=$(kubectl get svc kibana -n "${ELK_NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null); do
+  echo "Waiting for Kibana LoadBalancer..."
+  sleep 10
+done
+
+log "Kibana URL: http://${KIBANA_URL}:5601"
+
+# === Verification ===
+log "Verifying ELK stack deployment"
+
+# Check Elasticsearch health
+log "Checking Elasticsearch health"
+kubectl exec -n "${ELK_NAMESPACE}" deployment/elasticsearch -- curl -s http://localhost:9200/_cluster/health | python3 -m json.tool || echo "Elasticsearch health check failed - still starting up"
+
+# Check all pods status
+log "Current pod status in ${ELK_NAMESPACE}:"
+kubectl get pods -n "${ELK_NAMESPACE}"
+
+log "EKS cluster with ELK stack setup complete!"
+log "Access Kibana at: http://${KIBANA_URL}:5601"
+log "Note: It may take a few minutes for the LoadBalancer to be fully provisioned"

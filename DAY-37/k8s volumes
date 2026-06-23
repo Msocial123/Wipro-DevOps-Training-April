@@ -1,0 +1,13 @@
+KUBERNETES VOLUMES:
+Why?
+To share , store data.  --> containers.
+	1. Data persistance --> 
+	2. Shared storage
+C1 to c10
+C1 --> c2 .
+Volumes: read same files, write data together, share content.
+	3. Easy communication with containers:
+Volumes will allow containers to communicate each other without networking.
+Exchanging data, files.
+	4. Better application management:
+Reliable storage.

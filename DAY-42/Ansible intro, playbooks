@@ -1,0 +1,44 @@
+ANSIBLE:
+Before ansible:
+	1. All tools are agent-based tools. Setting up infra is difficult.
+	2. Other tools use pull mechanism.
+	3. Managing grps, users are difficult.
+	4. Installing or dealing with packages is some difficult.
+	5. Backup data.
+
+
+Pull mechanism: agent will pull configuration from main server.
+Nodes will check the server.
+They will pull commands if any changes are there.
+Works continuosly.
+
+Push mechanism: nodes will not check continuously.
+Server(central server) sends commands to nodes.
+
+
+
+After Ansible:
+	1. It's  agent-less configuration, automated tool.
+	2. It uses SSH protocol. --> gives more security.
+	3. It uses push mechanism.
+	4. It turns your code into infra.
+	5. Tell desired configuration , don't need to mention how to achieve it.
+
+
+PLAYBOOKS:
+When dealing with multiple tasks, we will write what to perform.
+It's an yaml files.
+
+Advantage:
+Not wasting time by executing one by one commands.
+
+Why SSH?
+Bcz of security features.
+Secure, available in linux servers.
+Will allows ansible to work without installing any agent in target servers(host servers).
+When command is executed, it provides encrypted communication.
+
+
+What is Ansible:
+An automated tool helps us to manage, configure multiple servers automatically using SSH protocol
+It's an agent-less tool.

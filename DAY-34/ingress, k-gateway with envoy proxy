@@ -1,0 +1,58 @@
+Ingress: 1.expose the application through HTTPS or HTTP.
+<ec2public ip>:80
+Service ---> IP(10.100.134.18) --> expose app
+	2. Act as traffic manager(controls traffic, distributes traffic).
+Receive request from users.
+Check the rules.
+Sends traffic to correct service.
+
+Advantage:
+One publicIP or loadbalancer --> can route traffic to multiple applications.
+Provide website URL's.
+Balance traffic between pods.
+Support multiple domains.
+
+
+Ingress controller:
+Ingress will check rules, these rules are implemented by ingress controller.
+
+
+4000, 5000 --> custom TCP --> service --> node port or loadbalancer.
+
+Limitations:
+	1. Different ingress controllers will behave differently.
+	2. Advanced traffic management is difficult.
+	3. Limited routing features.
+
+
+
+k-gateway :  gateway controller.
+Work :
+	1. Read gateway API resources from kubernetes.
+	2. Configure envoy proxy automatically.
+	3. Control traffic routing.
+Envoy proxy:
+Traffic handler, 
+Fast, cloud-native.
+
+Work:
+	1. Receive the user request.
+	2. Route traffic to services.
+	3. Handles load balancing.
+	4. Security
+	5. Observability.
+k-gateway tells envoy proxy:
+	1. Which request to where.
+	2. Security rules.
+	3. Which hostname to use
+	4. Which path to route
+
+HTTP route: traffic rule book.
+It says how http request should be matched, forwarded to backend.
+Rules:
+	1. Which hostname to match.
+	2. Which URL path to match.
+	3. Which backend service to send traffic. 
+	
+	
+	

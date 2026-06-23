@@ -1,0 +1,30 @@
+TERRAFORM:
+IAC(Infrastructure As Code) tool
+Hashi corp.
+Create, manage, destroy the infra.
+10 ec2, 1 vpc, 2 subnets, 2 rt, 1 igw, 1 nat, 1 lb, 1asg
+Automatic (avoid manual work)
+
+Why ?
+Infra automation
+Multi-cloud deployment.
+Env replica.
+For monitoring.
+Team sharing(collaboration) 
+Reusability.
+Save time.
+Reduce manual errors.
+Track, versioning the resources(infra).
+
+
+Files in terraform?
+	1. Main.tf --> contains all the resources what you want to create.
+	Ami ID: var. Ami ID.
+	2. Provider.tf --> contains cloud provider that u are using(AWS or Azure or gcp)
+	3. Variables.tf --> declare variables.
+	Ami ID: ami-8364547382782(ID)
+	4. Terraform.tfvars --> used for assign the values to variables that we declare in variables.tf
+	5. Output.tf --> public IP.
+
+
+Cidr block: a465: : fg738: 

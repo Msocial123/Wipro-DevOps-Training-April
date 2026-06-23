@@ -1,0 +1,13 @@
+GitOps:
+Way to manage infra, kubernetes deployments.
+
+AgroCD:
+It's an CD tool.
+
+Why?
+1. Detects the changes.
+2. Version control.
+3. Pull based - pulling code from repo automatically.
+4. Easy rollback.
+5. Comes with build-in CLI, UI.
+6. Manages 'n' no. of clusters in an env/server/system.
